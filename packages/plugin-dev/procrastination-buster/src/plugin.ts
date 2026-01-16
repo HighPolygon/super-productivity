@@ -1,3 +1,43 @@
 // Procrastination Buster Plugin for Super Productivity
-// import { PluginInterface } from '@super-productivity/plugin-api';
-// declare const plugin: PluginInterface;
+import { PluginAPI } from '@super-productivity/plugin-api';
+import type { PluginHooks } from '@super-productivity/plugin-api';
+
+declare const plugin: PluginAPI;
+
+// Plugin initialization
+plugin.log.info('Procrastination Buster plugin initialized');
+
+// Register side panel button
+plugin.registerSidePanelButton({
+  icon: 'psychology',
+  label: 'Procrastination Buster',
+  onClick: () => {
+    plugin.showIndexHtmlAsView();
+  },
+});
+
+// i18n support - handle translation requests from iframe
+if (plugin.onMessage) {
+  plugin.onMessage(async (message: any) => {
+    switch (message?.type) {
+      case 'translate':
+        return plugin.translate(message.data.key, message.data.params);
+      case 'getCurrentLanguage':
+        return plugin.getCurrentLanguage();
+      default:
+        return { error: 'Unknown message type' };
+    }
+  });
+}
+
+// Listen for language changes and notify iframe
+plugin.registerHook(PluginHooks.LANGUAGE_CHANGE, (language: string) => {
+  // Notify the iframe about language change
+  const iframe = document.querySelector('iframe[data-plugin-iframe]');
+  if (iframe && (iframe as HTMLIFrameElement).contentWindow) {
+    (iframe as HTMLIFrameElement).contentWindow!.postMessage(
+      { type: 'languageChanged', language },
+      '*',
+    );
+  }
+});
