@@ -65,7 +65,6 @@ export function useTranslate() {
     (async () => {
       try {
         const lang = await sendMessage('getCurrentLanguage');
-        console.log('[useTranslate] Initial language:', lang);
         setCurrentLanguage(lang);
       } catch (error) {
         console.error('[useTranslate] Failed to get current language:', error);
@@ -76,9 +75,7 @@ export function useTranslate() {
   // Listen for language change events
   createEffect(() => {
     const handleLanguageChange = (event: MessageEvent) => {
-      console.log('[useTranslate] Received event:', event.data.type);
       if (event.data.type === 'languageChanged') {
-        console.log('[useTranslate] Language changed to:', event.data.language);
         setCurrentLanguage(event.data.language);
       }
     };
