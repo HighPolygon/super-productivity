@@ -12,6 +12,7 @@ import {
   switchMap,
   take,
   tap,
+  throttleTime,
   withLatestFrom,
 } from 'rxjs/operators';
 import * as actions from './focus-mode.actions';
@@ -632,6 +633,7 @@ export class FocusModeEffects {
     createEffect(
       () =>
         this.store.select(selectors.selectProgress).pipe(
+          skipWhileApplyingRemoteOps(),
           withLatestFrom(this.store.select(selectors.selectIsRunning)),
           tap(([progress, isRunning]) => {
             window.ea.setProgressBar({
@@ -656,24 +658,43 @@ export class FocusModeEffects {
       { dispatch: false },
     );
 
-  // Update banner when session or break state changes
-  // Only shows banner when focus mode feature is enabled
+  // Update banner when focus mode actions occur
+  // Action-based pattern preferred over selector-based (CLAUDE.md Section 8)
+  // Throttled to prevent excessive banner updates (timer ticks every 1s)
   updateBanner$ = createEffect(
     () =>
-      combineLatest([
-        this.store.select(selectors.selectIsSessionRunning),
-        this.store.select(selectors.selectIsBreakActive),
-        this.store.select(selectors.selectIsSessionCompleted),
-        this.store.select(selectors.selectIsSessionPaused),
-        this.store.select(selectors.selectMode),
-        this.store.select(selectors.selectCurrentCycle),
-        this.store.select(selectors.selectIsOverlayShown),
-        this.store.select(selectors.selectTimer),
-        this.store.select(selectFocusModeConfig),
-        this.store.select(selectIsFocusModeEnabled),
-      ]).pipe(
+      this.actions$.pipe(
+        ofType(
+          actions.tick,
+          actions.startFocusSession,
+          actions.pauseFocusSession,
+          actions.unPauseFocusSession,
+          actions.startBreak,
+          actions.skipBreak,
+          actions.completeBreak,
+          actions.completeFocusSession,
+          actions.cancelFocusSession,
+          actions.hideFocusOverlay,
+          actions.showFocusOverlay,
+        ),
+        // Throttle to prevent excessive banner updates (timer ticks every 1s)
+        // Use leading + trailing to ensure first and last updates both trigger
+        throttleTime(500, undefined, { leading: true, trailing: true }),
+        withLatestFrom(
+          this.store.select(selectors.selectIsSessionRunning),
+          this.store.select(selectors.selectIsBreakActive),
+          this.store.select(selectors.selectIsSessionCompleted),
+          this.store.select(selectors.selectIsSessionPaused),
+          this.store.select(selectors.selectMode),
+          this.store.select(selectors.selectCurrentCycle),
+          this.store.select(selectors.selectIsOverlayShown),
+          this.store.select(selectors.selectTimer),
+          this.store.select(selectFocusModeConfig),
+          this.store.select(selectIsFocusModeEnabled),
+        ),
         tap(
           ([
+            _action,
             isSessionRunning,
             isOnBreak,
             isSessionCompleted,
@@ -986,6 +1007,7 @@ export class FocusModeEffects {
   playTickSound$ = createEffect(
     () =>
       this.store.select(selectors.selectTimer).pipe(
+        skipWhileApplyingRemoteOps(),
         filter(
           (timer) => timer.isRunning && timer.purpose === 'work' && timer.elapsed > 0,
         ),
