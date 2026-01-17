@@ -173,6 +173,8 @@ jobs:
 
       - name: Test Unit
         run: npm run test
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
 
       #      - uses: browser-actions/setup-chrome@v2
       #        id: setup-chrome
