@@ -60,7 +60,8 @@ A personal data breach is:
 - ✅ Ransomware encrypting user data
 - ✅ Accidental deletion of user data
 - ✅ Data sent to wrong recipient
-- ✅ Lost/stolen device containing unencrypted user data
+- ✅ Lost/stolen device or server disk containing unencrypted user data
+- ✅ Physical server compromise or disk theft (data stored unencrypted for non-E2EE users)
 - ✅ Successful SQL injection or XSS attack exposing user data
 - ✅ Compromised credentials allowing unauthorized database access
 
@@ -143,7 +144,10 @@ Anyone who suspects a breach should immediately:
 - [ ] Is this a confirmed breach or suspected breach?
 - [ ] What data is potentially affected?
 - [ ] How many users potentially affected?
-- [ ] Is data encrypted (E2EE)?
+- [ ] Is data encrypted?
+  - ✅ E2EE enabled: Data encrypted client-side (low risk)
+  - ❌ E2EE disabled: Data stored unencrypted in PostgreSQL (high risk)
+  - ⚠️ IMPORTANT: E2EE is optional, not mandatory - verify per user
 - [ ] Is breach ongoing or contained?
 
 ---
@@ -167,8 +171,9 @@ Answer these questions:
 
 - [ ] Email addresses
 - [ ] Password hashes
-- [ ] Sync operations (encrypted or plaintext?)
-- [ ] Snapshots (encrypted or plaintext?)
+- [ ] Sync operations (encrypted if E2EE enabled, otherwise plaintext)
+- [ ] Snapshots (encrypted if E2EE enabled, otherwise plaintext)
+- [ ] Database files (always unencrypted at disk level)
 - [ ] User content (tasks, projects, notes)
 - [ ] IP addresses / logs
 - [ ] Authentication tokens
@@ -199,7 +204,8 @@ Answer these questions:
 
 **High Risk to Users' Rights** (MUST notify users):
 
-- Unencrypted sensitive data exposed (tasks containing personal info)
+- Unencrypted sensitive data exposed (tasks/notes of non-E2EE users containing personal info)
+- Database backup stolen/exposed (non-E2EE user data readable in plaintext)
 - Credentials compromised (password hashes stolen)
 - Financial data exposed (payment info)
 - Identity theft risk
@@ -207,7 +213,8 @@ Answer these questions:
 
 **Low Risk to Users' Rights** (May not require user notification):
 
-- Data already encrypted (E2EE users)
+- Data already encrypted with E2EE (server compromise doesn't expose plaintext)
+- Note: Only applies to users who enabled E2EE (optional, not default)
 - Only metadata exposed (IP addresses, timestamps)
 - Already publicly available information
 - Highly unlikely to cause harm
@@ -216,7 +223,7 @@ Answer these questions:
 | Factor | High Risk | Low Risk |
 |--------|-----------|----------|
 | Data Type | Personal/financial | Technical metadata |
-| Encryption | Plaintext | Encrypted (E2EE) |
+| Encryption | E2EE Disabled (Unencrypted in PostgreSQL) | E2EE Enabled (Encrypted client-side) |
 | User Count | >100 users | <10 users |
 | Misuse Likelihood | High | Low |
 | User Harm Severity | Significant | Minimal |
@@ -238,7 +245,8 @@ Document risk assessment clearly - supervisory authority will review.
 **NO - Do not notify if:**
 
 - No personal data involved
-- Breach unlikely to result in risk (e.g., encrypted data, key secure)
+- Breach unlikely to result in risk (e.g., data encrypted with E2EE, keys secure)
+- ⚠️ Only applies to users who enabled E2EE (optional feature)
 - Incident was not a breach (e.g., DDoS, user error)
 
 **When in doubt: NOTIFY. Under-reporting is riskier than over-reporting.**
@@ -321,6 +329,7 @@ If investigation cannot be completed within 72 hours:
 **NO - Do not notify users if:**
 
 - Risk is low (e.g., data encrypted with E2EE, keys secure)
+- ⚠️ Users without E2EE have data stored unencrypted - higher risk
 - Disproportionate effort (e.g., contact info lost in breach)
 - Supervisory authority grants exemption
 
@@ -351,7 +360,7 @@ What Happened:
 [Brief description of breach - e.g., "On [date], we discovered unauthorized access to our database."]
 
 What Data Was Affected:
-[List specific data types - e.g., "Email addresses, password hashes (encrypted), and sync operations."]
+[List specific data types - e.g., "Email addresses, password hashes (bcrypt), and sync operations (encrypted for E2EE users, unencrypted for non-E2EE users)."]
 
 What We Are Doing:
 - [Immediate actions taken - e.g., "We immediately secured the system and rotated credentials."]
@@ -453,7 +462,9 @@ Create file: `INCIDENT-[YYYY-MM-DD]-[ID].md`
 
 - [ ] Email addresses
 - [ ] Password hashes
-- [ ] User content (encrypted/plaintext?)
+- [ ] User content (encrypted if E2EE enabled, unencrypted otherwise)
+- [ ] Was user using E2EE? (check user account settings)
+- [ ] Percentage of affected users with E2EE enabled vs disabled
 - [ ] Other: \***\*\_\*\***
 
 **Users affected:** [Number/All/Unknown]
@@ -566,7 +577,11 @@ Schedule annual incident response drill:
 ### Technical Controls
 
 - [ ] Implement comprehensive audit logging
-- [ ] Enable database encryption at rest (verify with Alfahosting)
+- [x] ❌ Database encryption at rest: NOT IMPLEMENTED
+  - PostgreSQL data files stored unencrypted on disk
+  - Compensating control: Optional E2EE available (not enabled by default)
+  - Risk: Users who don't enable E2EE have unencrypted data at rest
+  - Recommendation: Implement LUKS disk encryption OR make E2EE mandatory
 - [ ] Set up intrusion detection system (IDS)
 - [ ] Implement automated security scanning
 - [ ] Enable two-factor authentication for admin access
@@ -608,9 +623,9 @@ Schedule annual incident response drill:
 ```
 Is personal data involved?
 ├─ No → Not a data breach (may still be security incident)
-└─ Yes → Is data encrypted with keys secure?
-    ├─ Yes → Low risk, may not require notification
-    └─ No → Likely breach
+└─ Yes → Was data encrypted with E2EE?
+    ├─ Yes (E2EE enabled) → Keys secure? → Low risk, may not require notification
+    └─ No (E2EE disabled) → Unencrypted data → HIGH RISK
         └─ Affects >10 users OR sensitive data?
             ├─ No → Notify authority (low priority)
             └─ Yes → HIGH PRIORITY

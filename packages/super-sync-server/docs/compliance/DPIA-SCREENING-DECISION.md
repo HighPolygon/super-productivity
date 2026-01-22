@@ -124,6 +124,32 @@ Users _may_ choose to store sensitive information (e.g., "doctor appointment" no
 
 ---
 
+### Additional Consideration: Encryption at Rest
+
+**Current State:** ⚠️ Database encryption at rest NOT implemented
+
+**Analysis:**
+
+- PostgreSQL data files stored unencrypted on disk
+- Compensating control: Optional E2EE available (user choice)
+- Risk: Users who don't enable E2EE have unencrypted data at rest
+
+**Impact on DPIA Decision:**
+
+- Does NOT change DPIA requirement (still not required per Art. 35)
+- Encryption gap increases risk severity but doesn't trigger DPIA thresholds
+- Risk is addressed through:
+  - Optional E2EE offering
+  - Physical security at hosting provider (Alfahosting)
+  - Access controls (JWT authentication, rate limiting)
+  - Transparent disclosure in privacy policy
+
+**Conclusion:**
+The lack of database encryption at rest is documented as a compliance gap (85% vs 92%),
+but does not meet the "high risk" threshold requiring a full DPIA under Art. 35.
+
+---
+
 ## 3. WP248 Criteria Assessment
 
 Evaluating against all 9 criteria from WP248 Rev.01:
@@ -150,7 +176,13 @@ Evaluating against all 9 criteria from WP248 Rev.01:
 
 ## 4. Risk Assessment
 
-### Risk Level: LOW
+### Risk Level: LOW-MEDIUM
+
+**Overall Risk Assessment:**
+
+- E2EE users: LOW risk (zero-knowledge encryption)
+- Non-E2EE users: MEDIUM risk (unencrypted data at rest)
+- Mitigations: Physical security, access controls, optional E2EE
 
 | Risk Factor           | Assessment | Justification                                                       |
 | --------------------- | ---------- | ------------------------------------------------------------------- |
@@ -165,16 +197,16 @@ Evaluating against all 9 criteria from WP248 Rev.01:
 
 ### User Harm Scenarios (Hypothetical)
 
-| Scenario                     | Likelihood | Impact | Risk Level                     |
-| ---------------------------- | ---------- | ------ | ------------------------------ |
-| Data breach (unencrypted)    | Low        | Medium | Low-Medium                     |
-| Data breach (E2EE enabled)   | Low        | Low    | Very Low                       |
-| Unauthorized account access  | Low        | Medium | Low-Medium                     |
-| Service unavailability       | Medium     | Low    | Low                            |
-| Accidental data loss         | Low        | Medium | Low-Medium                     |
-| Privacy violation (tracking) | None       | N/A    | None (no tracking implemented) |
+| Scenario                     | Likelihood | Impact | Risk Level                             |
+| ---------------------------- | ---------- | ------ | -------------------------------------- |
+| Data breach (unencrypted)    | Low        | Medium | Low-Medium (MEDIUM for non-E2EE users) |
+| Data breach (E2EE enabled)   | Low        | Low    | Very Low                               |
+| Unauthorized account access  | Low        | Medium | Low-Medium                             |
+| Service unavailability       | Medium     | Low    | Low                                    |
+| Accidental data loss         | Low        | Medium | Low-Medium                             |
+| Privacy violation (tracking) | None       | N/A    | None (no tracking implemented)         |
 
-**Overall Risk to Rights and Freedoms:** LOW
+**Overall Risk to Rights and Freedoms:** LOW-MEDIUM (varies by E2EE usage)
 
 ---
 
@@ -245,9 +277,16 @@ Super Productivity Sync implements multiple safeguards that reduce risk:
 
 1. Does not meet GDPR Article 35(3) mandatory DPIA scenarios
 2. Meets fewer than 2 WP248 criteria (threshold for likely DPIA requirement)
-3. Processing poses low risk to data subjects' rights and freedoms
+3. Processing poses low-medium risk to data subjects' rights and freedoms
 4. Extensive mitigating factors in place (privacy by design, security, user control)
 5. Comparable to other productivity/sync services that do not require DPIA
+
+**Encryption Gap Consideration:**
+While database encryption at rest is not currently implemented, this does not elevate
+the processing to "high risk" requiring a DPIA. The service offers optional E2EE
+as a compensating control, maintains transparent disclosure, and processes data on
+a relatively small scale with strong access controls. Users requiring maximum security
+are advised to enable E2EE.
 
 **Documented Screening:** This document serves as evidence of DPIA screening for accountability purposes (Art. 5(2) GDPR).
 
@@ -283,6 +322,8 @@ A full DPIA **must** be conducted if processing changes significantly, such as:
 - [ ] Performance optimizations
 - [ ] Bug fixes
 - [ ] Additional sync providers (similar to existing)
+- [ ] Implementation of mandatory encryption (would reduce risk, strengthen compliance)
+- [ ] Removal of E2EE option (would increase risk, may trigger DPIA need)
 
 **Process:**
 

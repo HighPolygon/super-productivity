@@ -229,12 +229,24 @@ Create document containing:
 - E2EE enabled: Yes/No
 - Storage used: [X MB]
 
+**Encryption Status:**
+
+- Your account uses E2EE: ✅ Yes / ❌ No
+- Data stored encrypted on server: [Yes if E2EE enabled, No otherwise]
+- Note: Without E2EE enabled, your data is stored unencrypted in our PostgreSQL database
+
 ### Sync Data
 
 - Number of operations: [count]
 - Number of devices: [count]
 - Latest snapshot date: [date]
   [Attached: sync-data-export.json]
+
+**Note on Data Export:**
+
+- E2EE users: Data exported in encrypted form (you must decrypt with your key)
+- Non-E2EE users: Data exported in plaintext JSON format
+- Exported data includes all sync operations and snapshots
 
 ### Server Logs (if still retained)
 
@@ -276,6 +288,9 @@ Create document containing:
 - Portability: Export data (attached)
 - Object: Contact us to object to processing
 - Complain: Sächsischer Datenschutzbeauftragter (saechsdsb@slt.sachsen.de)
+
+**Security Disclosure:**
+Users should be informed that without E2EE enabled, their data is stored unencrypted in our PostgreSQL database. We recommend enabling E2EE for sensitive data.
 
 ## 3. Attachments
 
