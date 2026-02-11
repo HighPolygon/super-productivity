@@ -43,7 +43,7 @@ import { OpLog } from '../../core/log';
  */
 /**
  * Detects whether a CONCURRENT comparison result is a pruning artifact rather
- * than genuine concurrency.
+ * than genuine concurrency (import-side pruning).
  *
  * When a new client joins after a SYNC_IMPORT that already has MAX_VECTOR_CLOCK_SIZE
  * entries, the new client's ops get an (MAX+1)-entry clock. The server prunes this
@@ -104,6 +104,87 @@ export const isLikelyPruningArtifact = (
   }
 
   return true;
+};
+
+/**
+ * Detects whether a CONCURRENT comparison result is caused by server-side pruning
+ * of the OP's vector clock, which dropped the import's client ID (op-side pruning).
+ *
+ * This is the inverse of isLikelyPruningArtifact:
+ * - isLikelyPruningArtifact: import clock at MAX, new client's ID pruned from it
+ * - isOpSidePruningArtifact: op clock at MAX, import's client ID pruned from it
+ *
+ * This scenario occurs when:
+ * 1. A client creates a SYNC_IMPORT with a small vector clock (e.g., fresh client: {clientId:1})
+ * 2. Other clients apply the import, merging {clientId:1} into their existing MAX-size clocks
+ * 3. When creating new ops, the server prunes the import client's low-counter entry
+ *    (it has value 1, the lowest in the clock, so it's pruned first)
+ * 4. The resulting op's clock has no knowledge of the import client, causing CONCURRENT
+ *
+ * Detection criteria (all must be true):
+ * 1. Op's clock has >= MAX_VECTOR_CLOCK_SIZE entries (server pruning occurred on op)
+ * 2. Import's clock has < MAX_VECTOR_CLOCK_SIZE entries (small import, e.g., from fresh client)
+ * 3. Import's client ID is NOT in op's clock (was pruned due to low counter value)
+ * 4. One of:
+ *    a. Shared keys exist and ALL have op values >= import values (op inherited import knowledge)
+ *    b. No shared keys but op was created after the import (UUIDv7 ordering)
+ *
+ * @param opClock The op's vector clock
+ * @param importClock The SYNC_IMPORT's vector clock (possibly normalized)
+ * @param importClientId The client ID that created the SYNC_IMPORT
+ * @param opId The op's UUIDv7 ID (used for timestamp comparison when clocks are disjoint)
+ * @param importId The SYNC_IMPORT's UUIDv7 ID (used for timestamp comparison)
+ */
+export const isOpSidePruningArtifact = (
+  opClock: VectorClock,
+  importClock: VectorClock,
+  importClientId: string,
+  opId: string,
+  importId: string,
+): boolean => {
+  const opKeyCount = Object.keys(opClock).length;
+  const importKeyCount = Object.keys(importClock).length;
+
+  // Op must be at MAX size (server pruning must have occurred)
+  if (opKeyCount < MAX_VECTOR_CLOCK_SIZE) {
+    return false;
+  }
+
+  // Import must be small (from a fresh/new client).
+  // If import is at MAX, the existing isLikelyPruningArtifact handles it.
+  if (importKeyCount >= MAX_VECTOR_CLOCK_SIZE) {
+    return false;
+  }
+
+  // Import's client ID must NOT be in op's clock (was pruned away)
+  if (importClientId in opClock) {
+    return false;
+  }
+
+  // Check shared keys between import and op
+  const importKeys = Object.keys(importClock);
+  const sharedKeys = importKeys.filter((k) => k in opClock);
+
+  if (sharedKeys.length > 0) {
+    // Shared keys exist: verify op has >= values for ALL (causal knowledge).
+    // If the op has LESS knowledge for any shared key, this is genuine concurrency.
+    for (const key of sharedKeys) {
+      if (opClock[key] < importClock[key]) {
+        return false;
+      }
+    }
+    // All shared keys show op >= import → op inherited import's knowledge
+    return true;
+  }
+
+  // No shared keys: clocks are completely disjoint.
+  // This happens when the import has a single entry (e.g., {newClientId:1}) and
+  // the op's MAX-size clock contains entirely different client IDs.
+  //
+  // We cannot determine causality from clocks alone, so we use UUIDv7 ordering
+  // as additional evidence. UUIDv7 contains monotonic timestamps, so an op with
+  // a later ID was created after the import (modulo negligible clock drift).
+  return opId > importId;
 };
 
 @Injectable({
@@ -298,6 +379,27 @@ export class SyncImportFilterService {
         OpLog.normal(
           `SyncImportFilterService: KEEPING op ${op.id} (${op.actionType}) despite CONCURRENT - same client as import.\n` +
             `  Client ${op.clientId} counter: op=${op.vectorClock[op.clientId]} > import=${importClockForComparison[op.clientId]} (post-import op).`,
+        );
+        validOps.push(op);
+      } else if (
+        comparison === VectorClockComparison.CONCURRENT &&
+        isOpSidePruningArtifact(
+          op.vectorClock,
+          importClockForComparison,
+          latestImport.clientId,
+          op.id,
+          latestImport.id,
+        )
+      ) {
+        // Op's clock was pruned by the server, dropping the import's client ID.
+        // This happens when the import has a small clock (e.g., from a fresh client
+        // with {clientId:1}) and the op's established clock is at MAX_VECTOR_CLOCK_SIZE.
+        // The server pruned the import client's low-counter entry from the op's clock,
+        // making the op appear CONCURRENT when it was actually created after the import.
+        OpLog.normal(
+          `SyncImportFilterService: KEEPING op ${op.id} (${op.actionType}) despite CONCURRENT comparison.\n` +
+            `  Op clock was pruned by server, losing import client ${latestImport.clientId}.\n` +
+            `  Op clock size: ${Object.keys(op.vectorClock).length}, Import clock size: ${Object.keys(importClockForComparison).length}`,
         );
         validOps.push(op);
       } else {

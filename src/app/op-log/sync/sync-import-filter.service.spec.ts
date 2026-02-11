@@ -1285,12 +1285,12 @@ describe('SyncImportFilterService', () => {
        *
        * THE BUG:
        * 1. SYNC_IMPORT exists with exactly MAX_VECTOR_CLOCK_SIZE (10) entries in its clock
-       * 2. New client (e.g., mobile A_DReS) receives import, merges clock → 11 entries
+       * 2. New client (e.g., mobile established_a) receives import, merges clock → 11 entries
        * 3. Server prunes to 10 entries (drops one inherited entry like A_Zw6o:88)
        * 4. Other clients download the op and compare with import:
        *    - Both clocks have 10 entries → pruning-aware mode
        *    - 9 shared keys are all equal
-       *    - Each side has 1 unique key (A_DReS in op, A_Zw6o in import)
+       *    - Each side has 1 unique key (established_a in op, A_Zw6o in import)
        *    - compareVectorClocks returns CONCURRENT
        * 5. SyncImportFilterService drops CONCURRENT ops → mobile changes lost!
        *
@@ -1309,11 +1309,11 @@ describe('SyncImportFilterService', () => {
       it('should KEEP ops from new client when CONCURRENT is caused by server-side pruning (exact bug scenario)', async () => {
         // SYNC_IMPORT with exactly MAX_VECTOR_CLOCK_SIZE entries
         const importClock = buildClock({
-          A_bw1h: 227,
+          peer_a: 227,
           A_wU5p: 95,
           A_Zw6o: 88,
-          B_HSxu: 10774,
-          B_pr52: 3642,
+          peer_c: 10774,
+          peer_d: 3642,
           BCL_174: 117821,
           BCLmd3: 4990,
           BCLmd4: 80215,
@@ -1325,7 +1325,7 @@ describe('SyncImportFilterService', () => {
         const syncImport = createOp({
           id: '019c4290-0a51-7184-0000-000000000000',
           opType: OpType.SyncImport,
-          clientId: 'B_pr52',
+          clientId: 'peer_d',
           entityType: 'ALL',
           vectorClock: importClock,
         });
@@ -1340,21 +1340,21 @@ describe('SyncImportFilterService', () => {
           }),
         );
 
-        // New mobile client A_DReS (NOT in import's clock) creates op after
-        // receiving import. Server pruned A_Zw6o:88, added A_DReS:1.
+        // New mobile client established_a (NOT in import's clock) creates op after
+        // receiving import. Server pruned A_Zw6o:88, added established_a:1.
         const mobileOp = createOp({
           id: '019c42a0-0001-7000-0000-000000000000',
           opType: OpType.Create,
-          clientId: 'A_DReS',
+          clientId: 'established_a',
           entityId: 'new-task-1',
           actionType: '[Task Shared] addTask' as ActionType,
           vectorClock: buildClock({
-            A_DReS: 1,
-            A_bw1h: 227,
+            established_a: 1,
+            peer_a: 227,
             A_wU5p: 95,
             // A_Zw6o: 88 was PRUNED by server
-            B_HSxu: 10774,
-            B_pr52: 3642,
+            peer_c: 10774,
+            peer_d: 3642,
             BCL_174: 117821,
             BCLmd3: 4990,
             BCLmd4: 80215,
@@ -1366,20 +1366,20 @@ describe('SyncImportFilterService', () => {
 
         const result = await service.filterOpsInvalidatedBySyncImport([mobileOp]);
 
-        // FIX: Op should be KEPT - A_DReS is a new client that inherited the import's
+        // FIX: Op should be KEPT - established_a is a new client that inherited the import's
         // clock. The CONCURRENT result is a pruning artifact, not genuine concurrency.
         expect(result.validOps.length).toBe(1);
-        expect(result.validOps[0].clientId).toBe('A_DReS');
+        expect(result.validOps[0].clientId).toBe('established_a');
         expect(result.invalidatedOps.length).toBe(0);
       });
 
       it('should KEEP multiple ops from new client after import (server pruned different entries)', async () => {
         const importClock = buildClock({
-          A_bw1h: 227,
+          peer_a: 227,
           A_wU5p: 95,
           A_Zw6o: 88,
-          B_HSxu: 10774,
-          B_pr52: 3642,
+          peer_c: 10774,
+          peer_d: 3642,
           BCL_174: 117821,
           BCLmd3: 4990,
           BCLmd4: 80215,
@@ -1393,7 +1393,7 @@ describe('SyncImportFilterService', () => {
             op: createOp({
               id: '019c4290-0a51-7184-0000-000000000000',
               opType: OpType.SyncImport,
-              clientId: 'B_pr52',
+              clientId: 'peer_d',
               entityType: 'ALL',
               vectorClock: importClock,
             }),
@@ -1407,14 +1407,14 @@ describe('SyncImportFilterService', () => {
           createOp({
             id: '019c42a0-0001-7000-0000-000000000000',
             opType: OpType.Create,
-            clientId: 'A_DReS',
+            clientId: 'established_a',
             entityId: 'task-1',
             vectorClock: buildClock({
-              A_DReS: 1,
-              A_bw1h: 227,
+              established_a: 1,
+              peer_a: 227,
               A_wU5p: 95,
-              B_HSxu: 10774,
-              B_pr52: 3642,
+              peer_c: 10774,
+              peer_d: 3642,
               BCL_174: 117821,
               BCLmd3: 4990,
               BCLmd4: 80215,
@@ -1425,14 +1425,14 @@ describe('SyncImportFilterService', () => {
           createOp({
             id: '019c42a0-0002-7000-0000-000000000000',
             opType: OpType.Update,
-            clientId: 'A_DReS',
+            clientId: 'established_a',
             entityId: 'task-1',
             vectorClock: buildClock({
-              A_DReS: 2,
-              A_bw1h: 227,
+              established_a: 2,
+              peer_a: 227,
               A_wU5p: 95,
-              B_HSxu: 10774,
-              B_pr52: 3642,
+              peer_c: 10774,
+              peer_d: 3642,
               BCL_174: 117821,
               BCLmd3: 4990,
               BCLmd4: 80215,
@@ -1450,11 +1450,11 @@ describe('SyncImportFilterService', () => {
 
       it('should KEEP op from new client when shared keys are GREATER than import (post-import activity)', async () => {
         const importClock = buildClock({
-          A_bw1h: 227,
+          peer_a: 227,
           A_wU5p: 95,
           A_Zw6o: 88,
-          B_HSxu: 10774,
-          B_pr52: 3642,
+          peer_c: 10774,
+          peer_d: 3642,
           BCL_174: 117821,
           BCLmd3: 4990,
           BCLmd4: 80215,
@@ -1468,7 +1468,7 @@ describe('SyncImportFilterService', () => {
             op: createOp({
               id: '019c4290-0a51-7184-0000-000000000000',
               opType: OpType.SyncImport,
-              clientId: 'B_pr52',
+              clientId: 'peer_d',
               entityType: 'ALL',
               vectorClock: importClock,
             }),
@@ -1478,18 +1478,18 @@ describe('SyncImportFilterService', () => {
           }),
         );
 
-        // New client saw more ops from B_pr52 after the import
+        // New client saw more ops from peer_d after the import
         const mobileOp = createOp({
           id: '019c42a0-0001-7000-0000-000000000000',
           opType: OpType.Create,
-          clientId: 'A_DReS',
+          clientId: 'established_a',
           entityId: 'task-1',
           vectorClock: buildClock({
-            A_DReS: 3,
-            A_bw1h: 227,
+            established_a: 3,
+            peer_a: 227,
             A_wU5p: 95,
-            B_HSxu: 10774,
-            B_pr52: 3650, // GREATER than import's 3642
+            peer_c: 10774,
+            peer_d: 3650, // GREATER than import's 3642
             BCL_174: 117821,
             BCLmd3: 4990,
             BCLmd4: 80215,
@@ -1590,11 +1590,11 @@ describe('SyncImportFilterService', () => {
 
       it('should still FILTER ops from client that IS in import clock (not a new client)', async () => {
         const importClock = buildClock({
-          A_bw1h: 227,
+          peer_a: 227,
           A_wU5p: 95,
           A_Zw6o: 88,
-          B_HSxu: 10774,
-          B_pr52: 3642,
+          peer_c: 10774,
+          peer_d: 3642,
           BCL_174: 117821,
           BCLmd3: 4990,
           BCLmd4: 80215,
@@ -1608,7 +1608,7 @@ describe('SyncImportFilterService', () => {
             op: createOp({
               id: '019c4290-0a51-7184-0000-000000000000',
               opType: OpType.SyncImport,
-              clientId: 'B_pr52',
+              clientId: 'peer_d',
               entityType: 'ALL',
               vectorClock: importClock,
             }),
@@ -1618,18 +1618,18 @@ describe('SyncImportFilterService', () => {
           }),
         );
 
-        // Client A_bw1h IS in import's clock - this is an existing client, not new.
+        // Client peer_a IS in import's clock - this is an existing client, not new.
         // Even though shared keys are equal, the pruning-artifact heuristic should NOT apply.
         const existingClientOp = createOp({
           id: '019c42a0-0001-7000-0000-000000000000',
           opType: OpType.Update,
-          clientId: 'A_bw1h',
+          clientId: 'peer_a',
           entityId: 'task-1',
           vectorClock: buildClock({
-            A_bw1h: 228,
+            peer_a: 228,
             A_wU5p: 95,
-            B_HSxu: 10774,
-            B_pr52: 3642,
+            peer_c: 10774,
+            peer_d: 3642,
             BCL_174: 117821,
             BCLmd3: 4990,
             BCLmd4: 80215,
@@ -1641,7 +1641,7 @@ describe('SyncImportFilterService', () => {
 
         const result = await service.filterOpsInvalidatedBySyncImport([existingClientOp]);
 
-        // This should be KEPT via normal GREATER_THAN comparison (A_bw1h: 228 > 227)
+        // This should be KEPT via normal GREATER_THAN comparison (peer_a: 228 > 227)
         // The pruning artifact check is not needed here - normal comparison handles it
         expect(result.validOps.length).toBe(1);
         expect(result.invalidatedOps.length).toBe(0);
@@ -1649,11 +1649,11 @@ describe('SyncImportFilterService', () => {
 
       it('should KEEP op from new client even when import is in the same batch', async () => {
         const importClock = buildClock({
-          A_bw1h: 227,
+          peer_a: 227,
           A_wU5p: 95,
           A_Zw6o: 88,
-          B_HSxu: 10774,
-          B_pr52: 3642,
+          peer_c: 10774,
+          peer_d: 3642,
           BCL_174: 117821,
           BCLmd3: 4990,
           BCLmd4: 80215,
@@ -1664,7 +1664,7 @@ describe('SyncImportFilterService', () => {
         const syncImport = createOp({
           id: '019c4290-0a51-7184-0000-000000000000',
           opType: OpType.SyncImport,
-          clientId: 'B_pr52',
+          clientId: 'peer_d',
           entityType: 'ALL',
           vectorClock: importClock,
         });
@@ -1672,14 +1672,14 @@ describe('SyncImportFilterService', () => {
         const mobileOp = createOp({
           id: '019c42a0-0001-7000-0000-000000000000',
           opType: OpType.Create,
-          clientId: 'A_DReS',
+          clientId: 'established_a',
           entityId: 'task-1',
           vectorClock: buildClock({
-            A_DReS: 1,
-            A_bw1h: 227,
+            established_a: 1,
+            peer_a: 227,
             A_wU5p: 95,
-            B_HSxu: 10774,
-            B_pr52: 3642,
+            peer_c: 10774,
+            peer_d: 3642,
             BCL_174: 117821,
             BCLmd3: 4990,
             BCLmd4: 80215,
@@ -1754,11 +1754,11 @@ describe('SyncImportFilterService', () => {
         // Import has MAX entries. New client inherits clock, sees 2 more new clients,
         // resulting in MAX+3 entries. Server prunes back to MAX, dropping 3 import entries.
         const importClock = buildClock({
-          A_bw1h: 227,
+          peer_a: 227,
           A_wU5p: 95,
           A_Zw6o: 88,
-          B_HSxu: 10774,
-          B_pr52: 3642,
+          peer_c: 10774,
+          peer_d: 3642,
           BCL_174: 117821,
           BCLmd3: 4990,
           BCLmd4: 80215,
@@ -1773,7 +1773,7 @@ describe('SyncImportFilterService', () => {
             op: createOp({
               id: '019c4290-0a51-7184-0000-000000000000',
               opType: OpType.SyncImport,
-              clientId: 'B_pr52',
+              clientId: 'peer_d',
               entityType: 'ALL',
               vectorClock: importClock,
             }),
@@ -1783,23 +1783,23 @@ describe('SyncImportFilterService', () => {
           }),
         );
 
-        // New client added 3 entries (A_DReS, A_newX, A_newY) making 13 total.
+        // New client added 3 entries (established_a, A_newX, A_newY) making 13 total.
         // Server pruned 3 import entries (A_Zw6o, A_wU5p, BCM_mhq) back to MAX.
         // Only 7 shared keys remain (8 inherited - 1 not present = 7).
         const mobileOp = createOp({
           id: '019c42a0-0001-7000-0000-000000000000',
           opType: OpType.Create,
-          clientId: 'A_DReS',
+          clientId: 'established_a',
           entityId: 'task-1',
           vectorClock: buildClock({
-            A_DReS: 1,
+            established_a: 1,
             A_newX: 5,
             A_newY: 3,
-            A_bw1h: 227,
+            peer_a: 227,
             // A_wU5p: 95 was PRUNED
             // A_Zw6o: 88 was PRUNED
-            B_HSxu: 10774,
-            B_pr52: 3642,
+            peer_c: 10774,
+            peer_d: 3642,
             BCL_174: 117821,
             BCLmd3: 4990,
             BCLmd4: 80215,
@@ -1822,11 +1822,11 @@ describe('SyncImportFilterService', () => {
         // compareVectorClocks does NOT enter pruning-aware mode here (only one side at MAX),
         // but still returns CONCURRENT. The pruning artifact heuristic should still detect it.
         const importClock = buildClock({
-          A_bw1h: 227,
+          peer_a: 227,
           A_wU5p: 95,
           A_Zw6o: 88,
-          B_HSxu: 10774,
-          B_pr52: 3642,
+          peer_c: 10774,
+          peer_d: 3642,
           BCL_174: 117821,
           BCLmd3: 4990,
           BCLmd4: 80215,
@@ -1840,7 +1840,7 @@ describe('SyncImportFilterService', () => {
             op: createOp({
               id: '019c4290-0a51-7184-0000-000000000000',
               opType: OpType.SyncImport,
-              clientId: 'B_pr52',
+              clientId: 'peer_d',
               entityType: 'ALL',
               vectorClock: importClock,
             }),
@@ -1855,12 +1855,12 @@ describe('SyncImportFilterService', () => {
         const mobileOp = createOp({
           id: '019c42a0-0001-7000-0000-000000000000',
           opType: OpType.Create,
-          clientId: 'A_DReS',
+          clientId: 'established_a',
           entityId: 'task-1',
           vectorClock: buildClock({
-            A_DReS: 1,
-            B_HSxu: 10774,
-            B_pr52: 3642,
+            established_a: 1,
+            peer_c: 10774,
+            peer_d: 3642,
             BCL_174: 117821,
             BCLmdt: 653096,
             BCM_mhq: 2659,
@@ -1879,11 +1879,11 @@ describe('SyncImportFilterService', () => {
         // Import has MAX entries but op has zero overlap - tests criteria #3
         // at MAX size (not short-circuited by criteria #2)
         const importClock = buildClock({
-          A_bw1h: 227,
+          peer_a: 227,
           A_wU5p: 95,
           A_Zw6o: 88,
-          B_HSxu: 10774,
-          B_pr52: 3642,
+          peer_c: 10774,
+          peer_d: 3642,
           BCL_174: 117821,
           BCLmd3: 4990,
           BCLmd4: 80215,
@@ -1897,7 +1897,7 @@ describe('SyncImportFilterService', () => {
             op: createOp({
               id: '019c4290-0a51-7184-0000-000000000000',
               opType: OpType.SyncImport,
-              clientId: 'B_pr52',
+              clientId: 'peer_d',
               entityType: 'ALL',
               vectorClock: importClock,
             }),
@@ -1933,12 +1933,12 @@ describe('SyncImportFilterService', () => {
         // one of the oldest (least-recently-updated) entries in the import clock at the
         // time of pruning.
         const importClock = buildClock({
-          A_bw1h: 227,
+          peer_a: 227,
           A_wU5p: 95,
           // A_old1 was pruned from the import clock (was an old entry with low counter)
           // A_old1 is actually a pre-existing concurrent client, not a new client
-          B_HSxu: 10774,
-          B_pr52: 3642,
+          peer_c: 10774,
+          peer_d: 3642,
           BCL_174: 117821,
           BCLmd3: 4990,
           BCLmd4: 80215,
@@ -1954,7 +1954,7 @@ describe('SyncImportFilterService', () => {
             op: createOp({
               id: '019c4290-0a51-7184-0000-000000000000',
               opType: OpType.SyncImport,
-              clientId: 'B_pr52',
+              clientId: 'peer_d',
               entityType: 'ALL',
               vectorClock: importClock,
             }),
@@ -1974,10 +1974,10 @@ describe('SyncImportFilterService', () => {
           entityId: 'task-1',
           vectorClock: buildClock({
             A_old1: 50,
-            A_bw1h: 227,
+            peer_a: 227,
             A_wU5p: 95,
-            B_HSxu: 10774,
-            B_pr52: 3642,
+            peer_c: 10774,
+            peer_d: 3642,
             BCL_174: 117821,
             BCLmd3: 4990,
             BCLmd4: 80215,
@@ -2003,11 +2003,11 @@ describe('SyncImportFilterService', () => {
         // Import has MAX entries, op has shared keys but LOWER values - tests criteria #4
         // at MAX size (not short-circuited by criteria #2)
         const importClock = buildClock({
-          A_bw1h: 227,
+          peer_a: 227,
           A_wU5p: 95,
           A_Zw6o: 88,
-          B_HSxu: 10774,
-          B_pr52: 3642,
+          peer_c: 10774,
+          peer_d: 3642,
           BCL_174: 117821,
           BCLmd3: 4990,
           BCLmd4: 80215,
@@ -2021,7 +2021,7 @@ describe('SyncImportFilterService', () => {
             op: createOp({
               id: '019c4290-0a51-7184-0000-000000000000',
               opType: OpType.SyncImport,
-              clientId: 'B_pr52',
+              clientId: 'peer_d',
               entityType: 'ALL',
               vectorClock: importClock,
             }),
@@ -2039,9 +2039,9 @@ describe('SyncImportFilterService', () => {
           entityId: 'task-1',
           vectorClock: buildClock({
             A_stale: 5,
-            A_bw1h: 100, // LOWER than import's 227
-            B_HSxu: 10774,
-            B_pr52: 3642,
+            peer_a: 100, // LOWER than import's 227
+            peer_c: 10774,
+            peer_d: 3642,
             BCL_174: 117821,
             BCLmd3: 4990,
             BCLmd4: 80215,
@@ -2054,7 +2054,7 @@ describe('SyncImportFilterService', () => {
 
         const result = await service.filterOpsInvalidatedBySyncImport([staleOp]);
 
-        // Should be FILTERED - shared key A_bw1h (100 < 227) proves stale knowledge
+        // Should be FILTERED - shared key peer_a (100 < 227) proves stale knowledge
         expect(result.validOps.length).toBe(0);
         expect(result.invalidatedOps.length).toBe(1);
       });
@@ -2069,17 +2069,17 @@ describe('SyncImportFilterService', () => {
 
       it('should KEEP ops from existing client when import clock exceeds MAX (exact bug scenario)', async () => {
         // Import clock has 12 entries (exceeds MAX=10). The server pruned this to 10,
-        // but our local copy still has 12. Remote client B_EH5U created ops based on
-        // the 10-entry server version. Without normalization, B_EH5U's ops appear
+        // but our local copy still has 12. Remote client peer_b created ops based on
+        // the 10-entry server version. Without normalization, peer_b's ops appear
         // CONCURRENT because the local import has entries missing from the op.
         const importClock = buildClockN({
-          A_bw1h: 227,
+          peer_a: 227,
           A_lPYz: 51,
           A_wU5p: 95,
           A_Zw6o: 88,
-          B_EH5U: 52,
-          B_HSxu: 10774,
-          B_pr52: 3638,
+          peer_b: 52,
+          peer_c: 10774,
+          peer_d: 3638,
           BCL_174: 117821,
           BCLmd3: 4990,
           BCLmd4: 80215,
@@ -2094,7 +2094,7 @@ describe('SyncImportFilterService', () => {
             op: createOp({
               id: '019c4290-0a51-7184-0000-000000000000',
               opType: OpType.SyncImport,
-              clientId: 'B_pr52',
+              clientId: 'peer_d',
               entityType: 'ALL',
               vectorClock: importClock,
             }),
@@ -2104,19 +2104,19 @@ describe('SyncImportFilterService', () => {
           }),
         );
 
-        // Op from B_EH5U with 10 entries (server-pruned). B_EH5U IS in the original
+        // Op from peer_b with 10 entries (server-pruned). peer_b IS in the original
         // import clock but gets dropped during normalization (low counter=52).
         const opFromBugScenario = createOp({
           id: '019c42a0-0001-7000-0000-000000000000',
           opType: OpType.Update,
-          clientId: 'B_EH5U',
+          clientId: 'peer_b',
           entityId: 'task-1',
           vectorClock: buildClockN({
-            A_bw1h: 227,
+            peer_a: 227,
             A_wU5p: 95,
-            B_EH5U: 173,
-            B_HSxu: 10774,
-            B_pr52: 4073,
+            peer_b: 173,
+            peer_c: 10774,
+            peer_d: 4073,
             BCL_174: 117821,
             BCLmd3: 4990,
             BCLmd4: 80215,
@@ -2139,12 +2139,12 @@ describe('SyncImportFilterService', () => {
       it('should KEEP ops when import has MAX+1 (11) entries and op client is in import', async () => {
         // Boundary case: just barely over MAX
         const importClock = buildClockN({
-          A_bw1h: 227,
+          peer_a: 227,
           A_lPYz: 51,
           A_wU5p: 95,
-          B_EH5U: 52,
-          B_HSxu: 10774,
-          B_pr52: 3638,
+          peer_b: 52,
+          peer_c: 10774,
+          peer_d: 3638,
           BCL_174: 117821,
           BCLmd3: 4990,
           BCLmd4: 80215,
@@ -2159,7 +2159,7 @@ describe('SyncImportFilterService', () => {
             op: createOp({
               id: '019c4290-0a51-7184-0000-000000000000',
               opType: OpType.SyncImport,
-              clientId: 'B_pr52',
+              clientId: 'peer_d',
               entityType: 'ALL',
               vectorClock: importClock,
             }),
@@ -2172,14 +2172,14 @@ describe('SyncImportFilterService', () => {
         const op = createOp({
           id: '019c42a0-0001-7000-0000-000000000000',
           opType: OpType.Update,
-          clientId: 'B_EH5U',
+          clientId: 'peer_b',
           entityId: 'task-1',
           vectorClock: buildClockN({
-            A_bw1h: 227,
+            peer_a: 227,
             A_wU5p: 95,
-            B_EH5U: 173,
-            B_HSxu: 10774,
-            B_pr52: 4073,
+            peer_b: 173,
+            peer_c: 10774,
+            peer_d: 4073,
             BCL_174: 117821,
             BCLmd3: 4990,
             BCLmd4: 80215,
@@ -2197,11 +2197,11 @@ describe('SyncImportFilterService', () => {
       it('should preserve existing behavior when import has exactly MAX entries', async () => {
         // No normalization needed — import clock is already at MAX
         const importClock = buildClockN({
-          A_bw1h: 227,
+          peer_a: 227,
           A_wU5p: 95,
           A_Zw6o: 88,
-          B_HSxu: 10774,
-          B_pr52: 3642,
+          peer_c: 10774,
+          peer_d: 3642,
           BCL_174: 117821,
           BCLmd3: 4990,
           BCLmd4: 80215,
@@ -2216,7 +2216,7 @@ describe('SyncImportFilterService', () => {
             op: createOp({
               id: '019c4290-0a51-7184-0000-000000000000',
               opType: OpType.SyncImport,
-              clientId: 'B_pr52',
+              clientId: 'peer_d',
               entityType: 'ALL',
               vectorClock: importClock,
             }),
@@ -2230,14 +2230,14 @@ describe('SyncImportFilterService', () => {
         const newClientOp = createOp({
           id: '019c42a0-0001-7000-0000-000000000000',
           opType: OpType.Update,
-          clientId: 'A_DReS',
+          clientId: 'established_a',
           entityId: 'task-1',
           vectorClock: buildClockN({
-            A_DReS: 1,
-            A_bw1h: 227,
+            established_a: 1,
+            peer_a: 227,
             A_wU5p: 95,
-            B_HSxu: 10774,
-            B_pr52: 3642,
+            peer_c: 10774,
+            peer_d: 3642,
             BCL_174: 117821,
             BCLmd3: 4990,
             BCLmd4: 80215,
@@ -2254,13 +2254,13 @@ describe('SyncImportFilterService', () => {
 
       it('should handle mixed batch: GREATER_THAN kept, genuinely concurrent filtered, bug-scenario kept', async () => {
         const importClock = buildClockN({
-          A_bw1h: 227,
+          peer_a: 227,
           A_lPYz: 51,
           A_wU5p: 95,
           A_Zw6o: 88,
-          B_EH5U: 52,
-          B_HSxu: 10774,
-          B_pr52: 3638,
+          peer_b: 52,
+          peer_c: 10774,
+          peer_d: 3638,
           BCL_174: 117821,
           BCLmd3: 4990,
           BCLmd4: 80215,
@@ -2275,7 +2275,7 @@ describe('SyncImportFilterService', () => {
             op: createOp({
               id: '019c4290-0a51-7184-0000-000000000000',
               opType: OpType.SyncImport,
-              clientId: 'B_pr52',
+              clientId: 'peer_d',
               entityType: 'ALL',
               vectorClock: importClock,
             }),
@@ -2289,16 +2289,16 @@ describe('SyncImportFilterService', () => {
         const greaterOp = createOp({
           id: '019c42a0-0001-7000-0000-000000000000',
           opType: OpType.Update,
-          clientId: 'B_pr52',
+          clientId: 'peer_d',
           entityId: 'task-1',
           vectorClock: buildClockN({
-            A_bw1h: 228,
+            peer_a: 228,
             A_lPYz: 52,
             A_wU5p: 96,
             A_Zw6o: 89,
-            B_EH5U: 53,
-            B_HSxu: 10775,
-            B_pr52: 3639,
+            peer_b: 53,
+            peer_c: 10775,
+            peer_d: 3639,
             BCL_174: 117822,
             BCLmd3: 4991,
             BCLmd4: 80216,
@@ -2320,14 +2320,14 @@ describe('SyncImportFilterService', () => {
         const bugOp = createOp({
           id: '019c42a0-0003-7000-0000-000000000000',
           opType: OpType.Update,
-          clientId: 'B_EH5U',
+          clientId: 'peer_b',
           entityId: 'task-3',
           vectorClock: buildClockN({
-            A_bw1h: 227,
+            peer_a: 227,
             A_wU5p: 95,
-            B_EH5U: 173,
-            B_HSxu: 10774,
-            B_pr52: 4073,
+            peer_b: 173,
+            peer_c: 10774,
+            peer_d: 4073,
             BCL_174: 117821,
             BCLmd3: 4990,
             BCLmd4: 80215,
@@ -2351,13 +2351,13 @@ describe('SyncImportFilterService', () => {
 
       it('should KEEP ops when import has 15 entries (stress test)', async () => {
         const importClock = buildClockN({
-          A_bw1h: 227,
+          peer_a: 227,
           A_lPYz: 51,
           A_wU5p: 95,
           A_Zw6o: 88,
-          B_EH5U: 52,
-          B_HSxu: 10774,
-          B_pr52: 3638,
+          peer_b: 52,
+          peer_c: 10774,
+          peer_d: 3638,
           BCL_174: 117821,
           BCLmd3: 4990,
           BCLmd4: 80215,
@@ -2375,7 +2375,7 @@ describe('SyncImportFilterService', () => {
             op: createOp({
               id: '019c4290-0a51-7184-0000-000000000000',
               opType: OpType.SyncImport,
-              clientId: 'B_pr52',
+              clientId: 'peer_d',
               entityType: 'ALL',
               vectorClock: importClock,
             }),
@@ -2385,18 +2385,18 @@ describe('SyncImportFilterService', () => {
           }),
         );
 
-        // Op from B_EH5U which has a very low counter (52) in the import
+        // Op from peer_b which has a very low counter (52) in the import
         const op = createOp({
           id: '019c42a0-0001-7000-0000-000000000000',
           opType: OpType.Update,
-          clientId: 'B_EH5U',
+          clientId: 'peer_b',
           entityId: 'task-1',
           vectorClock: buildClockN({
-            A_bw1h: 227,
+            peer_a: 227,
             A_wU5p: 95,
-            B_EH5U: 173,
-            B_HSxu: 10774,
-            B_pr52: 4073,
+            peer_b: 173,
+            peer_c: 10774,
+            peer_d: 4073,
             BCL_174: 117821,
             BCLmd3: 4990,
             BCLmd4: 80215,
@@ -2413,13 +2413,13 @@ describe('SyncImportFilterService', () => {
 
       it('should FILTER genuinely concurrent op with no shared keys even when import exceeds MAX', async () => {
         const importClock = buildClockN({
-          A_bw1h: 227,
+          peer_a: 227,
           A_lPYz: 51,
           A_wU5p: 95,
           A_Zw6o: 88,
-          B_EH5U: 52,
-          B_HSxu: 10774,
-          B_pr52: 3638,
+          peer_b: 52,
+          peer_c: 10774,
+          peer_d: 3638,
           BCL_174: 117821,
           BCLmd3: 4990,
           BCLmd4: 80215,
@@ -2434,7 +2434,7 @@ describe('SyncImportFilterService', () => {
             op: createOp({
               id: '019c4290-0a51-7184-0000-000000000000',
               opType: OpType.SyncImport,
-              clientId: 'B_pr52',
+              clientId: 'peer_d',
               entityType: 'ALL',
               vectorClock: importClock,
             }),
@@ -2498,7 +2498,7 @@ describe('SyncImportFilterService', () => {
           // eslint-disable-next-line @typescript-eslint/naming-convention
           B_bC8O: 25,
           // eslint-disable-next-line @typescript-eslint/naming-convention
-          B_HSxu: 10806,
+          peer_c: 10806,
         };
 
         const syncImport = createOp({
@@ -2532,7 +2532,7 @@ describe('SyncImportFilterService', () => {
             // eslint-disable-next-line @typescript-eslint/naming-convention
             B_bC8O: 25,
             // eslint-disable-next-line @typescript-eslint/naming-convention
-            B_HSxu: 10806,
+            peer_c: 10806,
           },
         });
 
@@ -2563,7 +2563,7 @@ describe('SyncImportFilterService', () => {
           // eslint-disable-next-line @typescript-eslint/naming-convention
           B_bC8O: 25,
           // eslint-disable-next-line @typescript-eslint/naming-convention
-          B_HSxu: 10806,
+          peer_c: 10806,
         };
 
         const syncImport = createOp({
@@ -2589,7 +2589,7 @@ describe('SyncImportFilterService', () => {
             // eslint-disable-next-line @typescript-eslint/naming-convention
             A_Jxm0: 36, // Incremented from 35
             // eslint-disable-next-line @typescript-eslint/naming-convention
-            B_HSxu: 10806,
+            peer_c: 10806,
           },
         });
 
@@ -2608,12 +2608,12 @@ describe('SyncImportFilterService', () => {
 
     describe('same-client pruning artifact detection', () => {
       it('should KEEP op from same client as import when op counter is higher (real-world scenario)', async () => {
-        // Real-world scenario: B_pr52 created a SYNC_IMPORT with a 10-entry clock.
-        // Later, B_pr52 continues creating ops. Over time, pruning causes the op's
+        // Real-world scenario: peer_d created a SYNC_IMPORT with a 10-entry clock.
+        // Later, peer_d continues creating ops. Over time, pruning causes the op's
         // clock to diverge from the import's frozen clock (different entries pruned).
         const syncImportClock = {
           // eslint-disable-next-line @typescript-eslint/naming-convention
-          A_bw1h: 52,
+          peer_a: 52,
           // eslint-disable-next-line @typescript-eslint/naming-convention
           A_wU5p: 95,
           // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -2628,9 +2628,9 @@ describe('SyncImportFilterService', () => {
           // eslint-disable-next-line @typescript-eslint/naming-convention
           B_bC8O: 25,
           // eslint-disable-next-line @typescript-eslint/naming-convention
-          B_HSxu: 10806,
+          peer_c: 10806,
           // eslint-disable-next-line @typescript-eslint/naming-convention
-          B_pr52: 4176,
+          peer_d: 4176,
         };
         expect(Object.keys(syncImportClock).length).toBe(MAX_VECTOR_CLOCK_SIZE);
 
@@ -2640,7 +2640,7 @@ describe('SyncImportFilterService', () => {
             op: createOp({
               id: '019afd68-0050-7000-0000-000000000000',
               opType: OpType.SyncImport,
-              clientId: 'B_pr52',
+              clientId: 'peer_d',
               entityType: 'ALL',
               vectorClock: syncImportClock,
             }),
@@ -2650,13 +2650,13 @@ describe('SyncImportFilterService', () => {
           }),
         );
 
-        // Op from B_pr52 with a higher counter (4379 > 4176) but different pruned entries.
-        // Has A_DReS:110 (new client added after import), missing A_wU5p (pruned).
+        // Op from peer_d with a higher counter (4379 > 4176) but different pruned entries.
+        // Has established_a:110 (new client added after import), missing A_wU5p (pruned).
         const opClock = {
           // eslint-disable-next-line @typescript-eslint/naming-convention
-          A_bw1h: 52,
+          peer_a: 52,
           // eslint-disable-next-line @typescript-eslint/naming-convention
-          A_DReS: 110,
+          established_a: 110,
           // eslint-disable-next-line @typescript-eslint/naming-convention
           A_Jxm0: 35,
           // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -2669,16 +2669,16 @@ describe('SyncImportFilterService', () => {
           // eslint-disable-next-line @typescript-eslint/naming-convention
           B_bC8O: 25,
           // eslint-disable-next-line @typescript-eslint/naming-convention
-          B_HSxu: 10806,
+          peer_c: 10806,
           // eslint-disable-next-line @typescript-eslint/naming-convention
-          B_pr52: 4379,
+          peer_d: 4379,
         };
         expect(Object.keys(opClock).length).toBe(MAX_VECTOR_CLOCK_SIZE);
 
         const op = createOp({
           id: '019afd68-0100-7000-0000-000000000000',
           opType: OpType.Update,
-          clientId: 'B_pr52',
+          clientId: 'peer_d',
           entityId: 'task-1',
           vectorClock: opClock,
         });
@@ -3014,6 +3014,405 @@ describe('SyncImportFilterService', () => {
         expect(result.validOps.map((op) => op.clientId)).toContain('clientK');
         // Concurrent op should be filtered: old_client has no import knowledge
         expect(result.invalidatedOps.map((op) => op.clientId)).toContain('old_client');
+      });
+    });
+
+    describe('op-side pruning artifact detection (isOpSidePruningArtifact)', () => {
+      /**
+       * These tests verify the fix for the scenario where:
+       * 1. A fresh client creates a SYNC_IMPORT with a tiny clock (e.g., {fresh_import:1})
+       * 2. Other clients apply it and merge the import's client ID into their clocks
+       * 3. Server prunes the import's low-counter client ID from subsequent ops
+       * 4. The ops appear CONCURRENT with the import, causing all ops to be filtered
+       *
+       * This is the inverse of isLikelyPruningArtifact:
+       * - isLikelyPruningArtifact: import clock at MAX, new client's ID pruned from it
+       * - isOpSidePruningArtifact: op clock at MAX, import's client ID pruned from it
+       */
+
+      it('should KEEP ops when import has tiny clock and op clock is at MAX with UUIDv7 after import', async () => {
+        // Fresh client creates SYNC_IMPORT with minimal clock
+        const importOp = createOp({
+          id: '019c4e78-bcb8-7000-0000-000000000000',
+          opType: OpType.SyncImport,
+          clientId: 'fresh_import',
+          entityType: 'ALL',
+          vectorClock: { fresh_import: 1 },
+        });
+
+        opLogStoreSpy.getLatestFullStateOpEntry.and.returnValue(
+          Promise.resolve({
+            seq: 1,
+            op: importOp,
+            source: 'remote',
+            syncedAt: Date.now(),
+            appliedAt: Date.now(),
+          }),
+        );
+
+        // Op from established client with MAX entries, created AFTER import (later UUIDv7)
+        // The server pruned fresh_import from this clock because it had the lowest counter (1)
+        const opClock: Record<string, number> = {};
+        for (let i = 0; i < MAX_VECTOR_CLOCK_SIZE; i++) {
+          opClock[`client_${i}`] = 100 + i;
+        }
+
+        const op = createOp({
+          id: '019c4e79-7672-7000-0000-000000000000', // After import UUIDv7
+          opType: OpType.Update,
+          clientId: 'client_0',
+          entityId: 'task-1',
+          vectorClock: opClock,
+        });
+
+        const result = await service.filterOpsInvalidatedBySyncImport([op]);
+
+        // Op should be KEPT via isOpSidePruningArtifact:
+        // - Op clock at MAX (10 entries)
+        // - Import clock small (1 entry)
+        // - fresh_import not in op clock (pruned)
+        // - UUIDv7 ordering confirms op was created after import
+        expect(result.validOps.length).toBe(1);
+        expect(result.validOps[0].clientId).toBe('client_0');
+        expect(result.invalidatedOps.length).toBe(0);
+      });
+
+      it('should KEEP multiple ops from different clients when import has tiny clock', async () => {
+        // Fresh client creates SYNC_IMPORT
+        const importOp = createOp({
+          id: '019c4e78-bcb8-7000-0000-000000000000',
+          opType: OpType.SyncImport,
+          clientId: 'fresh_import',
+          entityType: 'ALL',
+          vectorClock: { fresh_import: 1 },
+        });
+
+        opLogStoreSpy.getLatestFullStateOpEntry.and.returnValue(
+          Promise.resolve({
+            seq: 1,
+            op: importOp,
+            source: 'remote',
+            syncedAt: Date.now(),
+            appliedAt: Date.now(),
+          }),
+        );
+
+        // Multiple ops from different established clients, all with MAX entries
+        const opClockA: Record<string, number> = {};
+        const opClockB: Record<string, number> = {};
+        for (let i = 0; i < MAX_VECTOR_CLOCK_SIZE; i++) {
+          opClockA[`clientA_${i}`] = 200 + i;
+          opClockB[`clientB_${i}`] = 300 + i;
+        }
+
+        const opA = createOp({
+          id: '019c4e79-0001-7000-0000-000000000000',
+          opType: OpType.Update,
+          clientId: 'clientA_0',
+          entityId: 'task-1',
+          vectorClock: opClockA,
+        });
+
+        const opB = createOp({
+          id: '019c4e79-0002-7000-0000-000000000000',
+          opType: OpType.Create,
+          clientId: 'clientB_0',
+          entityId: 'task-2',
+          vectorClock: opClockB,
+        });
+
+        const result = await service.filterOpsInvalidatedBySyncImport([opA, opB]);
+
+        // Both ops should be KEPT
+        expect(result.validOps.length).toBe(2);
+        expect(result.invalidatedOps.length).toBe(0);
+      });
+
+      it('should KEEP op when import has small clock with shared keys and op has >= values', async () => {
+        // Import with 2 entries (small but not minimal)
+        const importOp = createOp({
+          id: '019c4e78-bcb8-7000-0000-000000000000',
+          opType: OpType.SyncImport,
+          clientId: 'fresh_import',
+          entityType: 'ALL',
+          vectorClock: { fresh_import: 1, shared_client: 50 },
+        });
+
+        opLogStoreSpy.getLatestFullStateOpEntry.and.returnValue(
+          Promise.resolve({
+            seq: 1,
+            op: importOp,
+            source: 'remote',
+            syncedAt: Date.now(),
+            appliedAt: Date.now(),
+          }),
+        );
+
+        // Op has MAX entries, includes shared_client with higher value
+        const opClock: Record<string, number> = { shared_client: 75 };
+        for (let i = 1; i < MAX_VECTOR_CLOCK_SIZE; i++) {
+          opClock[`other_${i}`] = 100 + i;
+        }
+
+        const op = createOp({
+          id: '019c4e79-0001-7000-0000-000000000000',
+          opType: OpType.Update,
+          clientId: 'other_1',
+          entityId: 'task-1',
+          vectorClock: opClock,
+        });
+
+        const result = await service.filterOpsInvalidatedBySyncImport([op]);
+
+        // Op KEPT: shared key (shared_client) has op value 75 >= import value 50
+        expect(result.validOps.length).toBe(1);
+        expect(result.invalidatedOps.length).toBe(0);
+      });
+
+      it('should FILTER op when import has small clock with shared keys and op has LESS values', async () => {
+        // Import with 2 entries
+        const importOp = createOp({
+          id: '019c4e78-bcb8-7000-0000-000000000000',
+          opType: OpType.SyncImport,
+          clientId: 'fresh_import',
+          entityType: 'ALL',
+          vectorClock: { fresh_import: 1, shared_client: 50 },
+        });
+
+        opLogStoreSpy.getLatestFullStateOpEntry.and.returnValue(
+          Promise.resolve({
+            seq: 1,
+            op: importOp,
+            source: 'remote',
+            syncedAt: Date.now(),
+            appliedAt: Date.now(),
+          }),
+        );
+
+        // Op has MAX entries, includes shared_client with LOWER value
+        const opClock: Record<string, number> = { shared_client: 30 };
+        for (let i = 1; i < MAX_VECTOR_CLOCK_SIZE; i++) {
+          opClock[`other_${i}`] = 100 + i;
+        }
+
+        const op = createOp({
+          id: '019c4e79-0001-7000-0000-000000000000',
+          opType: OpType.Update,
+          clientId: 'other_1',
+          entityId: 'task-1',
+          vectorClock: opClock,
+        });
+
+        const result = await service.filterOpsInvalidatedBySyncImport([op]);
+
+        // Op FILTERED: shared key (shared_client) has op value 30 < import value 50
+        // This means the op does NOT have causal knowledge of the import
+        expect(result.validOps.length).toBe(0);
+        expect(result.invalidatedOps.length).toBe(1);
+      });
+
+      it('should FILTER op when op clock is below MAX (no server pruning)', async () => {
+        // Import from fresh client
+        const importOp = createOp({
+          id: '019c4e78-bcb8-7000-0000-000000000000',
+          opType: OpType.SyncImport,
+          clientId: 'fresh_import',
+          entityType: 'ALL',
+          vectorClock: { fresh_import: 1 },
+        });
+
+        opLogStoreSpy.getLatestFullStateOpEntry.and.returnValue(
+          Promise.resolve({
+            seq: 1,
+            op: importOp,
+            source: 'remote',
+            syncedAt: Date.now(),
+            appliedAt: Date.now(),
+          }),
+        );
+
+        // Op with fewer than MAX entries — no pruning could have occurred
+        const op = createOp({
+          id: '019c4e79-0001-7000-0000-000000000000',
+          opType: OpType.Update,
+          clientId: 'some_client',
+          entityId: 'task-1',
+          vectorClock: { some_client: 5 },
+        });
+
+        const result = await service.filterOpsInvalidatedBySyncImport([op]);
+
+        // Op FILTERED: clock has only 1 entry (< MAX), so pruning didn't cause this
+        expect(result.validOps.length).toBe(0);
+        expect(result.invalidatedOps.length).toBe(1);
+      });
+
+      it('should FILTER op when UUIDv7 shows op was created BEFORE import (no shared keys)', async () => {
+        // Import from fresh client
+        const importOp = createOp({
+          id: '019c4e79-bcb8-7000-0000-000000000000', // LATER UUIDv7
+          opType: OpType.SyncImport,
+          clientId: 'fresh_import',
+          entityType: 'ALL',
+          vectorClock: { fresh_import: 1 },
+        });
+
+        opLogStoreSpy.getLatestFullStateOpEntry.and.returnValue(
+          Promise.resolve({
+            seq: 1,
+            op: importOp,
+            source: 'remote',
+            syncedAt: Date.now(),
+            appliedAt: Date.now(),
+          }),
+        );
+
+        // Op with MAX entries but UUIDv7 BEFORE import
+        const opClock: Record<string, number> = {};
+        for (let i = 0; i < MAX_VECTOR_CLOCK_SIZE; i++) {
+          opClock[`client_${i}`] = 100 + i;
+        }
+
+        const op = createOp({
+          id: '019c4e78-0001-7000-0000-000000000000', // EARLIER UUIDv7
+          opType: OpType.Update,
+          clientId: 'client_0',
+          entityId: 'task-1',
+          vectorClock: opClock,
+        });
+
+        const result = await service.filterOpsInvalidatedBySyncImport([op]);
+
+        // Op FILTERED: UUIDv7 shows op was created before import
+        expect(result.validOps.length).toBe(0);
+        expect(result.invalidatedOps.length).toBe(1);
+      });
+
+      it('should NOT apply when import client ID IS in op clock', async () => {
+        // Import from fresh client
+        const importOp = createOp({
+          id: '019c4e78-bcb8-7000-0000-000000000000',
+          opType: OpType.SyncImport,
+          clientId: 'fresh_import',
+          entityType: 'ALL',
+          vectorClock: { fresh_import: 1 },
+        });
+
+        opLogStoreSpy.getLatestFullStateOpEntry.and.returnValue(
+          Promise.resolve({
+            seq: 1,
+            op: importOp,
+            source: 'remote',
+            syncedAt: Date.now(),
+            appliedAt: Date.now(),
+          }),
+        );
+
+        // Op clock includes fresh_import — import client was NOT pruned
+        // This means CONCURRENT comparison is genuine
+        const opClock: Record<string, number> = { fresh_import: 0 };
+        for (let i = 0; i < MAX_VECTOR_CLOCK_SIZE - 1; i++) {
+          opClock[`client_${i}`] = 100 + i;
+        }
+
+        const op = createOp({
+          id: '019c4e79-0001-7000-0000-000000000000',
+          opType: OpType.Update,
+          clientId: 'client_0',
+          entityId: 'task-1',
+          vectorClock: opClock,
+        });
+
+        const result = await service.filterOpsInvalidatedBySyncImport([op]);
+
+        // Op FILTERED: fresh_import IS in op clock (value=0), so this is genuine concurrency
+        expect(result.invalidatedOps.length).toBe(1);
+      });
+
+      it('should reproduce the exact scenario from the user bug report', async () => {
+        // Reproduce: fresh_import creates SYNC_IMPORT, then established_a, established_b, established_c
+        // create ops that get their clocks pruned by the server
+        const importOp = createOp({
+          id: '019c4e78-bcb8-7a0a-b2a9-86a5c276c6ba',
+          opType: OpType.SyncImport,
+          clientId: 'fresh_import',
+          entityType: 'ALL',
+          vectorClock: { fresh_import: 1 },
+        });
+
+        const ops: Operation[] = [
+          importOp,
+          // Op from established_a with MAX entries, no fresh_import (pruned by server)
+          createOp({
+            id: '019c4e79-7672-73a1-b59f-5da5564b20b2',
+            opType: OpType.Create,
+            clientId: 'established_a',
+            entityId: 'task-1',
+            vectorClock: {
+              peer_a: 227,
+              established_a: 124,
+              peer_b: 175,
+              peer_c: 10774,
+              peer_d: 4455,
+              server_a: 117821,
+              server_b: 4990,
+              server_c: 80215,
+              server_d: 653096,
+              server_e: 2659,
+            },
+          }),
+          // Op from established_b with MAX entries, no fresh_import
+          createOp({
+            id: '019c4e7c-9d5f-7623-88c1-50a931741f4e',
+            opType: OpType.Delete,
+            clientId: 'established_b',
+            entityId: 'task-2',
+            vectorClock: {
+              peer_a: 227,
+              peer_b: 175,
+              peer_c: 10774,
+              peer_d: 4455,
+              established_b: 56,
+              server_a: 117821,
+              server_b: 4990,
+              server_c: 80215,
+              server_d: 653096,
+              server_e: 2659,
+            },
+          }),
+          // Op from established_c with MAX entries, no fresh_import
+          createOp({
+            id: '019c4e85-770b-7435-aabb-02e6a1febdf7',
+            opType: OpType.Create,
+            clientId: 'established_c',
+            entityId: 'task-3',
+            vectorClock: {
+              peer_a: 227,
+              peer_b: 175,
+              peer_c: 10774,
+              peer_d: 4455,
+              established_c: 11,
+              server_a: 117821,
+              server_b: 4990,
+              server_c: 80215,
+              server_d: 653096,
+              server_e: 2659,
+            },
+          }),
+        ];
+
+        const result = await service.filterOpsInvalidatedBySyncImport(ops);
+
+        // All 4 ops should be valid: import itself + 3 post-import ops
+        expect(result.validOps.length).toBe(4);
+        expect(result.invalidatedOps.length).toBe(0);
+
+        // Verify the specific clients are all in valid ops
+        const validClientIds = result.validOps.map((op) => op.clientId);
+        expect(validClientIds).toContain('fresh_import'); // import itself
+        expect(validClientIds).toContain('established_a');
+        expect(validClientIds).toContain('established_b');
+        expect(validClientIds).toContain('established_c');
       });
     });
   });
