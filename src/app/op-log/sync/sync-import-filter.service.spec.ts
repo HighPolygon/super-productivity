@@ -3329,6 +3329,69 @@ describe('SyncImportFilterService', () => {
         expect(result.invalidatedOps.length).toBe(1);
       });
 
+      it('should document known false positive: offline client with MAX clock that never saw import', async () => {
+        // KNOWN LIMITATION: When the import has a single-entry clock (e.g., {fresh_import: 1}),
+        // there are zero shared keys with any established client's MAX-size clock. The UUIDv7
+        // fallback (opId > importId) is the ONLY signal. This cannot distinguish between:
+        //
+        // (a) A client that applied the import, then had fresh_import pruned (should KEEP)
+        // (b) An offline client that never saw the import but created ops after it (should FILTER)
+        //
+        // This test documents case (b): an offline client with a MAX-size clock that never
+        // received the import, but happens to create ops after the import in wall-clock time.
+        // The heuristic incorrectly keeps the op. This is an accepted trade-off: keeping a
+        // straggler op from an offline client is far less harmful than filtering ALL post-import
+        // operations (which is the bug this heuristic fixes).
+        const importOp = createOp({
+          id: '019c4e78-bcb8-7000-0000-000000000000',
+          opType: OpType.SyncImport,
+          clientId: 'fresh_import',
+          entityType: 'ALL',
+          vectorClock: { fresh_import: 1 },
+        });
+
+        opLogStoreSpy.getLatestFullStateOpEntry.and.returnValue(
+          Promise.resolve({
+            seq: 1,
+            op: importOp,
+            source: 'remote',
+            syncedAt: Date.now(),
+            appliedAt: Date.now(),
+          }),
+        );
+
+        // Offline client: has MAX entries from its own sync history,
+        // never received the import, never had fresh_import in its clock at all.
+        // Its op has a UUIDv7 ID that is lexicographically after the import's.
+        const offlineClock: Record<string, number> = {};
+        for (let i = 0; i < MAX_VECTOR_CLOCK_SIZE; i++) {
+          offlineClock[`offline_peer_${i}`] = 500 + i;
+        }
+
+        const offlineOp = createOp({
+          id: '019c4e79-0001-7000-0000-000000000000', // After import UUIDv7
+          opType: OpType.Update,
+          clientId: 'offline_peer_0',
+          entityId: 'task-1',
+          vectorClock: offlineClock,
+        });
+
+        const result = await service.filterOpsInvalidatedBySyncImport([offlineOp]);
+
+        // FALSE POSITIVE: The heuristic incorrectly keeps this op because:
+        // 1. Op clock at MAX (10 entries) → server pruning is plausible
+        // 2. Import clock small (1 entry) → fresh client
+        // 3. fresh_import not in op clock → looks like it was pruned
+        // 4. No shared keys → falls to UUIDv7 fallback
+        // 5. opId > importId → looks like post-import creation
+        //
+        // In reality, the offline client never saw the import. This is genuine
+        // concurrency. Accepted trade-off: keeping this op is safer than filtering
+        // all legitimate post-import ops (which is the catastrophic bug we fix).
+        expect(result.validOps.length).toBe(1);
+        expect(result.invalidatedOps.length).toBe(0);
+      });
+
       it('should reproduce the exact scenario from the user bug report', async () => {
         // Reproduce: fresh_import creates SYNC_IMPORT, then established_a, established_b, established_c
         // create ops that get their clocks pruned by the server

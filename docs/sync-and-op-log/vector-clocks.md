@@ -350,7 +350,51 @@ If all four criteria hold, the `CONCURRENT` result is treated as a pruning artif
 
 **Why this is safe:** A genuinely concurrent op (from a client that existed before the import but didn't see it) will fail criterion 1 (its `clientId` would be in the import's clock) or criterion 4 (it would have lower values for keys it didn't sync).
 
-**Reference:** `SyncImportFilterService._isLikelyPruningArtifact()` in `src/app/op-log/sync/sync-import-filter.service.ts`.
+**Reference:** `isLikelyPruningArtifact()` in `src/app/op-log/sync/sync-import-filter.service.ts`.
+
+### Op-Side SYNC_IMPORT Pruning Artifact Detection
+
+There is a second pruning artifact scenario — the **inverse** of the one above. Instead of the import's clock being at MAX and losing the new client, the **op's clock** is at MAX and loses the **import's client**.
+
+**The scenario:**
+
+1. A fresh Client K performs a SYNC_IMPORT with a tiny vectorClock: `{K: 1}`
+2. Established clients (A, B, C, ...) apply the import, merging `{K: 1}` into their existing clocks
+3. When established clients upload new ops, their clocks have MAX+1 entries. The server prunes back to MAX.
+4. Since `K: 1` is the **lowest counter value**, it is pruned first by `limitVectorClockSize()` (which keeps highest-counter entries)
+5. When another client downloads these ops and runs `SyncImportFilterService`, it compares:
+   - Op clock: `{A:227, B:175, C:10774, ...}` (MAX entries, missing `K`)
+   - Import clock: `{K: 1}` (tiny, 1 entry)
+6. `compareVectorClocks` uses all-keys-union mode (only one clock is at MAX), sees disjoint keys → `CONCURRENT`
+7. **Without the fix:** ALL post-import ops are filtered, causing catastrophic data loss
+
+**The heuristic — `isOpSidePruningArtifact()`:**
+
+| Criterion                                             | Rationale                                                  |
+| ----------------------------------------------------- | ---------------------------------------------------------- |
+| 1. Op clock has >= `MAX_VECTOR_CLOCK_SIZE` entries    | Server pruning only occurs at MAX                          |
+| 2. Import clock has < `MAX_VECTOR_CLOCK_SIZE` entries | Small import (e.g., from fresh client); inverse of above   |
+| 3. Import's `clientId` is NOT in op's clock           | Was pruned due to low counter value                        |
+| 4a. Shared keys exist with op values >= import values | Op inherited the import's knowledge through shared clients |
+| 4b. No shared keys but op UUIDv7 > import UUIDv7      | Timestamp evidence of post-import creation (fallback)      |
+
+**Known limitation (UUIDv7 fallback):** When the import has a single-entry clock `{K: 1}`, there are zero shared keys with any established client's MAX-size clock. The UUIDv7 ordering becomes the only signal. This cannot distinguish between:
+
+- A client that applied the import, then had `K` pruned from its clock (should KEEP — correct)
+- An offline client that never saw the import but created ops after it in wall-clock time (should FILTER — false positive)
+
+This false positive is an accepted trade-off: keeping a straggler op from an offline client is far less harmful than filtering ALL post-import operations.
+
+**Why both heuristics are needed (mutual exclusion):**
+
+| Scenario                      | Import clock | Op clock | Heuristic                 |
+| ----------------------------- | ------------ | -------- | ------------------------- |
+| New client after import       | >= MAX       | any      | `isLikelyPruningArtifact` |
+| Fresh import, established ops | < MAX        | >= MAX   | `isOpSidePruningArtifact` |
+
+The two heuristics have mutually exclusive preconditions on import clock size and cannot both trigger for the same op.
+
+**Reference:** `isOpSidePruningArtifact()` in `src/app/op-log/sync/sync-import-filter.service.ts`.
 
 ### Key Files
 
@@ -365,17 +409,18 @@ If all four criteria hold, the `CONCURRENT` result is treated as a pruning artif
 
 ## Current Implementation Status
 
-| Feature                                     | Status         | Notes                                  |
-| ------------------------------------------- | -------------- | -------------------------------------- |
-| Vector clock conflict detection             | ✅ Implemented | Used by both PFAPI and Operation Log   |
-| Entity-level conflict detection             | ✅ Implemented | Operation Log tracks per-entity clocks |
-| User conflict resolution UI                 | ✅ Implemented | `DialogConflictResolutionComponent`    |
-| Client pruning (MAX_VECTOR_CLOCK_SIZE = 10) | ✅ Implemented | `limitVectorClockSize()`               |
-| Server prunes after comparison              | ✅ Implemented | Prevents infinite rejection loop       |
-| Overflow protection                         | ✅ Implemented | Clocks throw error at MAX_SAFE_INTEGER |
-| Protected client IDs                        | ✅ Implemented | Preserves all keys from full-state ops |
-| Concurrent resolution retry limit           | ✅ Implemented | MAX_CONCURRENT_RESOLUTION_ATTEMPTS = 3 |
-| SYNC_IMPORT pruning artifact detection      | ✅ Implemented | `_isLikelyPruningArtifact()` heuristic |
+| Feature                                              | Status         | Notes                                                |
+| ---------------------------------------------------- | -------------- | ---------------------------------------------------- |
+| Vector clock conflict detection                      | ✅ Implemented | Used by both PFAPI and Operation Log                 |
+| Entity-level conflict detection                      | ✅ Implemented | Operation Log tracks per-entity clocks               |
+| User conflict resolution UI                          | ✅ Implemented | `DialogConflictResolutionComponent`                  |
+| Client pruning (MAX_VECTOR_CLOCK_SIZE = 10)          | ✅ Implemented | `limitVectorClockSize()` — see "Why MAX is 10" below |
+| Server prunes after comparison                       | ✅ Implemented | Prevents infinite rejection loop                     |
+| Overflow protection                                  | ✅ Implemented | Clocks throw error at MAX_SAFE_INTEGER               |
+| Protected client IDs                                 | ✅ Implemented | Preserves all keys from full-state ops               |
+| Concurrent resolution retry limit                    | ✅ Implemented | MAX_CONCURRENT_RESOLUTION_ATTEMPTS = 3               |
+| SYNC_IMPORT pruning artifact detection (import-side) | ✅ Implemented | `isLikelyPruningArtifact()` heuristic                |
+| SYNC_IMPORT pruning artifact detection (op-side)     | ✅ Implemented | `isOpSidePruningArtifact()` heuristic                |
 
 ## Protected Client IDs
 
@@ -427,6 +472,37 @@ For existing data where protected IDs were incomplete:
 - `OperationLogStoreService.setProtectedClientIds()` - Stores protected IDs
 - `limitVectorClockSize()` - Excludes protected IDs from pruning
 - `RemoteOpsProcessingService.processRemoteOps()` - Calls setProtectedClientIds when applying full-state ops
+
+## Why MAX_VECTOR_CLOCK_SIZE is 10 (and Cannot Be Increased)
+
+Vector clocks are stored on **every operation** and compared on **every sync**. `MAX_VECTOR_CLOCK_SIZE` directly controls per-operation payload size and comparison cost. Increasing it has compounding performance impact:
+
+| Impact Area          | MAX=10 (current)   | MAX=50               | Why It Hurts                                    |
+| -------------------- | ------------------ | -------------------- | ----------------------------------------------- |
+| Per-op clock size    | ~500 bytes         | ~2.5 KB              | Every op carries its full clock                 |
+| 10K ops sync payload | ~5 MB of clocks    | ~25 MB of clocks     | Transferred on every sync cycle                 |
+| IndexedDB storage    | Manageable         | Significant pressure | Mobile/PWA devices are memory-constrained       |
+| Comparison cost      | Iterate 10-20 keys | Iterate 50-100 keys  | Runs for every op against every entity frontier |
+| Server storage       | ~500 bytes/op      | ~2.5 KB/op           | Multiplied across all users and all ops         |
+
+The performance cost is especially acute on **mobile/PWA** where:
+
+- Network transfers are slow (cellular connections)
+- IndexedDB has tighter storage limits
+- CPU budgets are lower for comparison loops
+- Memory pressure from large payloads causes GC pauses
+
+### The Trade-Off
+
+Instead of increasing MAX (eliminating pruning artifacts at the root), we handle pruning artifacts with targeted heuristics:
+
+1. **`compareVectorClocks` pruning-aware mode** — when both clocks are at MAX, only compare shared keys
+2. **`isLikelyPruningArtifact`** — detects when a new client's op appears CONCURRENT with a MAX-size import because the import's clock was pruned
+3. **`isOpSidePruningArtifact`** — detects when a post-import op appears CONCURRENT with a small import because the op's clock was pruned
+4. **Same-client counter check** — the import client's own post-import ops are always kept
+5. **Protected client IDs** — client-side preservation of import-related clock entries
+
+This approach preserves sync performance while handling the known pruning scenarios. The heuristics have a known false positive (offline client with MAX-size clock, disjoint from a tiny import, UUIDv7 after import) that is accepted as a trade-off: keeping a straggler op is far less harmful than losing all post-import data.
 
 ## Future Improvements
 

@@ -31,6 +31,23 @@ export type VectorClockComparison = 'EQUAL' | 'LESS_THAN' | 'GREATER_THAN' | 'CO
 /**
  * Maximum number of entries in a vector clock.
  * Shared between client and server to ensure consistent pruning.
+ *
+ * WHY THIS IS 10 AND CANNOT BE INCREASED:
+ * Vector clocks are stored on EVERY operation and compared on every sync.
+ * Increasing this value has compounding performance costs:
+ * - Storage: Each op stores the full clock. At 10 entries, a clock is ~500 bytes.
+ *   At 50, it's ~2.5KB per op. With tens of thousands of ops, this adds megabytes
+ *   to IndexedDB, server storage, and network transfer on every sync.
+ * - Comparison: compareVectorClocks iterates all keys. More keys = slower
+ *   conflict detection on every sync cycle, for every op.
+ * - Pruning frequency: Larger MAX means pruning happens less often, but when it
+ *   does happen the cliff is steeper and harder to reason about.
+ * - Mobile/PWA impact: Larger payloads hurt sync performance on slow connections
+ *   and increase IndexedDB pressure on memory-constrained devices.
+ *
+ * Instead of increasing MAX, we handle pruning artifacts with heuristics in
+ * SyncImportFilterService (isLikelyPruningArtifact, isOpSidePruningArtifact)
+ * and in compareVectorClocks (pruning-aware mode for both-at-MAX clocks).
  */
 export const MAX_VECTOR_CLOCK_SIZE = 10;
 
